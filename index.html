@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Lot partagé</title>
+<style>
+  :root { --bg: #f4f6f6; --card: #fff; --fg: #1d2626; --muted: #5d6b6b; --line: #dde4e4; --accent: #007782; --accent-bg: #e3f1f2;
+    --ok: #1f7a4d; --ok-bg: #e2f3ea; --no: #a23a2c; --no-bg: #f8e4e0; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111717; --card: #1a2222; --fg: #e5eded; --muted: #9aaaaa; --line: #2c3838; --accent: #5cc2cb; --accent-bg: #173235;
+      --ok: #6fd3a0; --ok-bg: #173327; --no: #f09a8c; --no-bg: #3a1f1a; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  h1 { font-size: 18px; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 13.5px; }
+  .pick { margin-top: 6px; font-size: 14px; }
+  .pick b { color: var(--ok); }
+  main { padding: 12px 16px 24px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+  .item { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .item.ok { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok) inset; }
+  .item.non { opacity: .55; }
+  .item img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: var(--line); display: block; }
+  .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .brand { font-weight: 700; }
+  .title { color: var(--muted); font-size: 13.5px; }
+  .facts { font-size: 13.5px; }
+  .price { font-weight: 800; font-size: 17px; }
+  .votes { display: flex; gap: 8px; margin-top: auto; padding-top: 8px; }
+  .votes button { flex: 1; font: inherit; font-size: 17px; padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  .votes button.on[data-vote="ok"] { background: var(--ok-bg); border-color: var(--ok); }
+  .votes button.on[data-vote="non"] { background: var(--no-bg); border-color: var(--no); }
+  a { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 14px; }
+  footer { padding: 0 16px 32px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; color: var(--muted); font-size: 13px; }
+  footer a.open { background: var(--accent); color: #fff; padding: 10px 16px; border-radius: 10px; }
+  .msg { padding: 32px 16px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header><h1 id="head">Lot partagé</h1><div class="sub" id="sub"></div><div class="pick" id="pick"></div></header>
+<main id="items"></main>
+<footer id="foot"></footer>
+<script>
+(() => {
+  const [project, id, key] = decodeURIComponent(location.hash.slice(1)).split('/');
+  const $ = s => document.getElementById(s);
+  const money = n => (+n || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: Number.isInteger(+n) ? 0 : 2 });
+  const safeUrl = u => /^https:\/\//.test(u || '') ? u : '';
+  const el = (tag, { dataset, ...props } = {}, ...kids) => {
+    const e = Object.assign(document.createElement(tag), props);
+    Object.assign(e.dataset, dataset || {});
+    e.append(...kids.filter(k => k != null && k !== ''));
+    return e;
+  };
+  const fail = text => { $('items').replaceWith(el('div', { className: 'msg', textContent: text })); };
+  if (!/^[a-z0-9]{10,40}$/.test(project || '') || !/^[A-Za-z0-9_-]{22,64}$/.test(id || '') || !key) return fail('Ce lien est incomplet : demandez-le à nouveau.');
+  const rpc = (name, body) => fetch(`https://${project}.supabase.co/rest/v1/rpc/${name}`, {
+    method: 'POST', headers: { apikey: key, 'content-type': 'application/json' }, body: JSON.stringify(body)
+  }).then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)));
+
+  let bundle, votes = {};
+  const paintPick = () => {
+    const ok = bundle.items.filter(i => votes[i.id] === 'ok'), non = bundle.items.filter(i => votes[i.id] === 'non').length;
+    $('pick').textContent = '';
+    $('pick').append(ok.length ? el('span', {}, '👍 ', el('b', { textContent: `${ok.length} article${ok.length > 1 ? 's' : ''}, ${money(ok.reduce((a, i) => a + i.price, 0))}` })) : 'Mettez 👍 ou 👎 à chaque article',
+      non ? ` · 👎 ${non}` : '');
+    document.querySelectorAll('.item').forEach(c => {
+      const v = votes[c.dataset.id] || '';
+      c.className = 'item' + (v ? ' ' + v : '');
+      c.querySelectorAll('[data-vote]').forEach(b => b.classList.toggle('on', b.dataset.vote === v));
+    });
+  };
+  const vote = async (item, v) => {
+    const next = votes[item] === v ? '' : v;
+    try { votes = (await rpc('vote_shared_bundle', { bundle_id: id, item_id: item, vote: next })) || votes; }
+    catch { alert('Avis non enregistré : vérifiez la connexion, puis réessayez.'); }
+    paintPick();
+  };
+  rpc('shared_bundle', { bundle_id: id }).then(r => {
+    if (!r) return fail('Ce lot n\'existe plus : les liens durent 30 jours.');
+    ({ bundle, votes } = r);
+    votes = votes || {};
+    const n = bundle.items.length;
+    $('head').textContent = `🧺 Lot chez ${bundle.seller}`;
+    $('sub').textContent = `${n} article${n > 1 ? 's' : ''}, ${money(bundle.total)}` + (bundle.afterDiscount < bundle.total ? ` → ${money(bundle.afterDiscount)} avec sa remise` : '') +
+      (bundle.offer ? ` · offre prévue ${money(bundle.offer)}` : '');
+    $('items').append(...bundle.items.map(i => el('article', { className: 'item', dataset: { id: i.id } },
+      safeUrl(i.photo) ? el('img', { src: i.photo, alt: '', loading: 'lazy' }) : null,
+      el('div', { className: 'body' },
+        i.brand ? el('div', { className: 'brand', textContent: i.brand }) : null,
+        el('div', { className: 'title', textContent: i.title }),
+        el('div', { className: 'facts', textContent: [i.size, i.condition].filter(Boolean).join(' · ') }),
+        el('div', { className: 'price', textContent: money(i.price) }),
+        safeUrl(i.url) ? el('a', { href: i.url, target: '_blank', rel: 'noopener noreferrer', textContent: 'Voir l\'annonce ↗' }) : null,
+        el('div', { className: 'votes' },
+          el('button', { type: 'button', textContent: '👍', title: 'Je le veux', dataset: { vote: 'ok' }, onclick: () => vote(i.id, 'ok') }),
+          el('button', { type: 'button', textContent: '👎', title: 'Pas celui-là', dataset: { vote: 'non' }, onclick: () => vote(i.id, 'non') }))))));
+    $('foot').append(safeUrl(bundle.link) ? el('a', { className: 'open', href: bundle.link, target: '_blank', rel: 'noopener noreferrer', textContent: 'Ouvrir le lot ↗' }) : '',
+      el('span', { textContent: 'Lien valable jusqu\'au ' + new Date(r.expires_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) }));
+    paintPick();
+  }, () => fail('Lot illisible pour l\'instant : vérifiez la connexion, puis rechargez la page.'));
+})();
+</script>
+</body>
+</html>
